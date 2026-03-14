@@ -1,0 +1,829 @@
+-- KEMERUS HUB v2.0
+-- Script by Kemerus
+
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local plr = Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+local hum = char:WaitForChild("Humanoid")
+
+local KEY = "KEMERUS31"
+
+-- STATE
+local state = {
+	AutoFarm   = false,
+	AutoKill   = false,
+	AntiAFK    = true,
+	Fly        = false,
+	SpeedHack  = false,
+	Noclip     = false,
+	ESP        = false,
+}
+
+-- AUTO BUY state
+local autoBuyEnabled = false
+local autoBuyAmount  = 1
+-- PENTING: deklarasi sliderDragging di sini agar drag frame bisa
+-- membaca variabel ini sebelum slider dibuat
+local sliderDragging = false
+
+-- ITEMS AUTO BUY (ID terbaru)
+local ITEMS = {
+	{name = "Item 1", id = 125593},
+	{name = "Item 2", id = 125493},
+	{name = "Item 3", id = 125423},
+}
+
+-- ================================================
+-- GUI
+-- ================================================
+local gui = Instance.new("ScreenGui", game.CoreGui)
+gui.Name = "KemerusHub"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local function corner(parent, radius)
+	local c = Instance.new("UICorner", parent)
+	c.CornerRadius = UDim.new(0, radius or 8)
+	return c
+end
+
+local function label(parent, text, size, color, font)
+	local l = Instance.new("TextLabel", parent)
+	l.BackgroundTransparency = 1
+	l.Text = text
+	l.TextSize = size or 13
+	l.TextColor3 = color or Color3.new(1,1,1)
+	l.Font = font or Enum.Font.GothamBold
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	return l
+end
+
+local C = {
+	BG         = Color3.fromRGB(13, 13, 20),
+	BG2        = Color3.fromRGB(19, 19, 31),
+	BG3        = Color3.fromRGB(16, 16, 26),
+	BORDER     = Color3.fromRGB(30, 30, 46),
+	ACCENT     = Color3.fromRGB(40, 120, 255),
+	TEXT       = Color3.new(1, 1, 1),
+	MUTED      = Color3.fromRGB(85, 85, 110),
+	SUCCESS    = Color3.fromRGB(34, 187, 85),
+	DANGER     = Color3.fromRGB(192, 60, 60),
+	TOGGLE_OFF = Color3.fromRGB(30, 30, 46),
+	TOGGLE_ON  = Color3.fromRGB(40, 120, 255),
+}
+
+-- ================================================
+-- MAIN FRAME
+-- ================================================
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.new(0, 420, 0, 280)
+frame.Position = UDim2.new(0.5, -210, 0.5, -140)
+frame.BackgroundColor3 = C.BG
+frame.BorderSizePixel = 0
+frame.ClipsDescendants = true
+corner(frame, 12)
+local frameStroke = Instance.new("UIStroke", frame)
+frameStroke.Color = C.BORDER; frameStroke.Thickness = 1
+
+-- ================================================
+-- TITLE BAR
+-- ================================================
+local titlebar = Instance.new("Frame", frame)
+titlebar.Size = UDim2.new(1, 0, 0, 42)
+titlebar.BackgroundColor3 = C.BG3
+titlebar.BorderSizePixel = 0
+local titleStroke = Instance.new("UIStroke", titlebar)
+titleStroke.Color = C.BORDER; titleStroke.Thickness = 1
+titleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+local titleLabel = label(titlebar, "KEMERUS HUB", 14, C.ACCENT, Enum.Font.GothamBold)
+titleLabel.Size = UDim2.new(1, -100, 1, 0)
+titleLabel.Position = UDim2.new(0, 16, 0, 0)
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+-- ================================================
+-- DRAG SYSTEM
+-- Drag HANYA dari titlebar.
+-- Kunci utama bug fix: cek sliderDragging sebelum geser frame,
+-- dan set dragging=false saat slider mulai digeser.
+-- ================================================
+local dragging   = false
+local dragStart  = Vector3.new()
+local frameStart = UDim2.new()
+
+titlebar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		if sliderDragging then return end
+		dragging   = true
+		dragStart  = input.Position
+		frameStart = frame.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	-- Slider sedang digeser → frame tidak boleh ikut gerak
+	if sliderDragging then return end
+	if dragging and (
+		input.UserInputType == Enum.UserInputType.MouseMovement or
+		input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		frame.Position = UDim2.new(
+			frameStart.X.Scale, frameStart.X.Offset + delta.X,
+			frameStart.Y.Scale, frameStart.Y.Offset + delta.Y
+		)
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		dragging       = false
+		sliderDragging = false  -- safety reset
+	end
+end)
+
+-- ================================================
+-- WINDOW BUTTONS
+-- ================================================
+local function winBtn(color, xOff, txt)
+	local btn = Instance.new("TextButton", titlebar)
+	btn.Size = UDim2.new(0, 28, 0, 28)
+	btn.Position = UDim2.new(1, xOff, 0.5, -14)
+	btn.BackgroundColor3 = color
+	btn.Text = txt
+	btn.TextColor3 = C.TEXT
+	btn.TextSize = 12
+	btn.Font = Enum.Font.GothamBold
+	btn.BorderSizePixel = 0
+	corner(btn, 6)
+	return btn
+end
+
+local closeBtn = winBtn(C.DANGER, -36, "X")
+local miniBtn  = winBtn(C.MUTED,  -70, "-")
+
+local minimized = false
+miniBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+		Size = minimized and UDim2.new(0,420,0,42) or UDim2.new(0,420,0,280)
+	}):Play()
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+	TweenService:Create(frame, TweenInfo.new(0.3), {Size = UDim2.new(0,0,0,0)}):Play()
+	task.wait(0.3); gui:Destroy()
+end)
+
+-- ================================================
+-- STATUS BAR
+-- ================================================
+local statusbar = Instance.new("Frame", frame)
+statusbar.Size = UDim2.new(1, 0, 0, 26)
+statusbar.Position = UDim2.new(0, 0, 1, -26)
+statusbar.BackgroundColor3 = C.BG3
+statusbar.BorderSizePixel = 0
+
+local statusDot = Instance.new("Frame", statusbar)
+statusDot.Size = UDim2.new(0, 6, 0, 6)
+statusDot.Position = UDim2.new(0, 14, 0.5, -3)
+statusDot.BackgroundColor3 = C.MUTED
+statusDot.BorderSizePixel = 0
+corner(statusDot, 10)
+
+local statusTxt = label(statusbar, "WAITING KEY...", 11, C.MUTED, Enum.Font.Gotham)
+statusTxt.Size = UDim2.new(0.7, 0, 1, 0)
+statusTxt.Position = UDim2.new(0, 26, 0, 0)
+
+local versionTxt = label(statusbar, "v2.0", 11, C.MUTED, Enum.Font.GothamBold)
+versionTxt.Size = UDim2.new(0, 40, 1, 0)
+versionTxt.Position = UDim2.new(1, -50, 0, 0)
+versionTxt.TextXAlignment = Enum.TextXAlignment.Right
+
+-- ================================================
+-- LOGIN SCREEN
+-- ================================================
+local loginFrame = Instance.new("Frame", frame)
+loginFrame.Size = UDim2.new(1, 0, 1, -68)
+loginFrame.Position = UDim2.new(0, 0, 0, 42)
+loginFrame.BackgroundTransparency = 1
+
+local loginTitle = label(loginFrame, "KEY SYSTEM", 20, C.TEXT, Enum.Font.GothamBold)
+loginTitle.Size = UDim2.new(0.8, 0, 0, 28)
+loginTitle.Position = UDim2.new(0.1, 0, 0.1, 0)
+loginTitle.TextXAlignment = Enum.TextXAlignment.Center
+
+local loginSub = label(loginFrame, "Masukkan key untuk melanjutkan", 12, C.MUTED, Enum.Font.Gotham)
+loginSub.Size = UDim2.new(0.8, 0, 0, 18)
+loginSub.Position = UDim2.new(0.1, 0, 0.3, 0)
+loginSub.TextXAlignment = Enum.TextXAlignment.Center
+
+local keybox = Instance.new("TextBox", loginFrame)
+keybox.Size = UDim2.new(0.8, 0, 0, 36)
+keybox.Position = UDim2.new(0.1, 0, 0.48, 0)
+keybox.BackgroundColor3 = C.BG2
+keybox.TextColor3 = C.TEXT
+keybox.PlaceholderText = "Masukkan Key..."
+keybox.PlaceholderColor3 = C.MUTED
+keybox.Text = ""
+keybox.TextSize = 13
+keybox.Font = Enum.Font.Code
+keybox.BorderSizePixel = 0
+keybox.ClearTextOnFocus = false
+corner(keybox)
+local keyStroke = Instance.new("UIStroke", keybox)
+keyStroke.Color = C.BORDER
+
+local loginBtn = Instance.new("TextButton", loginFrame)
+loginBtn.Size = UDim2.new(0.8, 0, 0, 36)
+loginBtn.Position = UDim2.new(0.1, 0, 0.68, 0)
+loginBtn.BackgroundColor3 = C.ACCENT
+loginBtn.Text = "CONTINUE"
+loginBtn.TextColor3 = C.TEXT
+loginBtn.TextSize = 14
+loginBtn.Font = Enum.Font.GothamBold
+loginBtn.BorderSizePixel = 0
+corner(loginBtn)
+
+local errLabel = label(loginFrame, "", 12, Color3.fromRGB(255, 85, 85), Enum.Font.Gotham)
+errLabel.Size = UDim2.new(0.8, 0, 0, 16)
+errLabel.Position = UDim2.new(0.1, 0, 0.88, 0)
+errLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+-- ================================================
+-- MENU SCREEN
+-- ================================================
+local menuFrame = Instance.new("Frame", frame)
+menuFrame.Size = UDim2.new(1, 0, 1, -68)
+menuFrame.Position = UDim2.new(0, 0, 0, 42)
+menuFrame.BackgroundTransparency = 1
+menuFrame.Visible = false
+
+local tabBar = Instance.new("Frame", menuFrame)
+tabBar.Size = UDim2.new(1, 0, 0, 34)
+tabBar.BackgroundColor3 = C.BG3
+tabBar.BorderSizePixel = 0
+local tabLayout = Instance.new("UIListLayout", tabBar)
+tabLayout.FillDirection = Enum.FillDirection.Horizontal
+tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local tabNames = {"AUTO FARM", "TELEPORT", "MISC", "CREDITS"}
+local tabFrames, tabBtns = {}, {}
+
+local function switchTab(idx)
+	for i, f in ipairs(tabFrames) do
+		f.Visible = (i == idx)
+		tabBtns[i].TextColor3 = (i == idx) and C.ACCENT or C.MUTED
+	end
+end
+
+for i, name in ipairs(tabNames) do
+	local btn = Instance.new("TextButton", tabBar)
+	btn.Size = UDim2.new(0.25, 0, 1, 0)
+	btn.BackgroundTransparency = 1
+	btn.Text = name
+	btn.TextSize = 10
+	btn.Font = Enum.Font.GothamBold
+	btn.TextColor3 = (i == 1) and C.ACCENT or C.MUTED
+	btn.BorderSizePixel = 0
+	btn.LayoutOrder = i
+	tabBtns[i] = btn
+	btn.MouseButton1Click:Connect(function() switchTab(i) end)
+end
+
+local function makeTabFrame()
+	local f = Instance.new("ScrollingFrame", menuFrame)
+	f.Size = UDim2.new(1, 0, 1, -34)
+	f.Position = UDim2.new(0, 0, 0, 34)
+	f.BackgroundTransparency = 1
+	f.BorderSizePixel = 0
+	f.ScrollBarThickness = 3
+	f.ScrollBarImageColor3 = C.BORDER
+	f.CanvasSize = UDim2.new(0, 0, 0, 0)
+	f.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	local layout = Instance.new("UIListLayout", f)
+	layout.Padding = UDim.new(0, 6)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	local pad = Instance.new("UIPadding", f)
+	pad.PaddingLeft = UDim.new(0, 12); pad.PaddingRight = UDim.new(0, 12)
+	pad.PaddingTop = UDim.new(0, 10);  pad.PaddingBottom = UDim.new(0, 10)
+	return f
+end
+
+local function makeToggle(parent, labelTxt, subTxt, stateKey, order)
+	local row = Instance.new("Frame", parent)
+	row.Size = UDim2.new(1, 0, 0, 46)
+	row.BackgroundColor3 = C.BG2
+	row.BorderSizePixel = 0
+	row.LayoutOrder = order
+	corner(row)
+	local rs = Instance.new("UIStroke", row)
+	rs.Color = C.BORDER; rs.Thickness = 1
+
+	local lbl = label(row, labelTxt, 13, C.TEXT, Enum.Font.GothamBold)
+	lbl.Size = UDim2.new(0.65, 0, 0, 18)
+	lbl.Position = UDim2.new(0, 12, 0, 7)
+	local sub = label(row, subTxt, 11, C.MUTED, Enum.Font.Gotham)
+	sub.Size = UDim2.new(0.65, 0, 0, 14)
+	sub.Position = UDim2.new(0, 12, 0, 25)
+
+	local pill = Instance.new("Frame", row)
+	pill.Size = UDim2.new(0, 38, 0, 20)
+	pill.Position = UDim2.new(1, -50, 0.5, -10)
+	pill.BackgroundColor3 = state[stateKey] and C.TOGGLE_ON or C.TOGGLE_OFF
+	pill.BorderSizePixel = 0
+	corner(pill, 10)
+
+	local knob = Instance.new("Frame", pill)
+	knob.Size = UDim2.new(0, 14, 0, 14)
+	knob.Position = state[stateKey] and UDim2.new(1,-17,0.5,-7) or UDim2.new(0,3,0.5,-7)
+	knob.BackgroundColor3 = state[stateKey] and C.TEXT or C.MUTED
+	knob.BorderSizePixel = 0
+	corner(knob, 10)
+
+	local btn = Instance.new("TextButton", row)
+	btn.Size = UDim2.new(1, 0, 1, 0)
+	btn.BackgroundTransparency = 1
+	btn.Text = ""
+	btn.MouseButton1Click:Connect(function()
+		state[stateKey] = not state[stateKey]
+		local on = state[stateKey]
+		TweenService:Create(pill, TweenInfo.new(0.2), {BackgroundColor3 = on and C.TOGGLE_ON or C.TOGGLE_OFF}):Play()
+		TweenService:Create(knob, TweenInfo.new(0.2), {
+			Position = on and UDim2.new(1,-17,0.5,-7) or UDim2.new(0,3,0.5,-7),
+			BackgroundColor3 = on and C.TEXT or C.MUTED,
+		}):Play()
+	end)
+end
+
+local function makeActionBtn(parent, text, callback, order)
+	local btn = Instance.new("TextButton", parent)
+	btn.Size = UDim2.new(1, 0, 0, 38)
+	btn.BackgroundColor3 = C.BG2
+	btn.Text = ""; btn.BorderSizePixel = 0; btn.LayoutOrder = order
+	corner(btn)
+	local s = Instance.new("UIStroke", btn); s.Color = C.BORDER
+
+	local dot = Instance.new("Frame", btn)
+	dot.Size = UDim2.new(0, 6, 0, 6); dot.Position = UDim2.new(0, 12, 0.5, -3)
+	dot.BackgroundColor3 = C.ACCENT; dot.BorderSizePixel = 0; corner(dot, 10)
+
+	local lbl = label(btn, text, 13, C.TEXT, Enum.Font.GothamBold)
+	lbl.Size = UDim2.new(1, -36, 1, 0); lbl.Position = UDim2.new(0, 26, 0, 0)
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+	btn.MouseButton1Click:Connect(function()
+		TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = C.BORDER}):Play()
+		task.wait(0.1)
+		TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = C.BG2}):Play()
+		if callback then callback() end
+	end)
+	return btn
+end
+
+-- ================================================
+-- TAB 1: AUTO FARM
+-- ================================================
+tabFrames[1] = makeTabFrame()
+makeToggle(tabFrames[1], "Auto Farm", "Farm otomatis terus menerus", "AutoFarm", 1)
+makeToggle(tabFrames[1], "Auto Kill", "Bunuh enemy otomatis",        "AutoKill", 2)
+makeToggle(tabFrames[1], "Anti AFK",  "Mencegah kick karena AFK",   "AntiAFK",  3)
+
+-- ================================================
+-- AUTO BUY CARD
+-- ================================================
+local buyCard = Instance.new("Frame", tabFrames[1])
+buyCard.Size = UDim2.new(1, 0, 0, 168)
+buyCard.BackgroundColor3 = C.BG2
+buyCard.BorderSizePixel = 0
+buyCard.LayoutOrder = 4
+corner(buyCard)
+local buyStroke = Instance.new("UIStroke", buyCard)
+buyStroke.Color = C.BORDER; buyStroke.Thickness = 1
+
+-- Header
+local buyHeaderLbl = label(buyCard, "Auto Buy", 13, C.TEXT, Enum.Font.GothamBold)
+buyHeaderLbl.Size = UDim2.new(0.55, 0, 0, 18)
+buyHeaderLbl.Position = UDim2.new(0, 12, 0, 10)
+
+local buySubLbl = label(buyCard, "Item 1 (125593)  •  Item 2 (125493)  •  Item 3 (125423)", 10, C.MUTED, Enum.Font.Gotham)
+buySubLbl.Size = UDim2.new(1, -100, 0, 14)
+buySubLbl.Position = UDim2.new(0, 12, 0, 27)
+
+-- Toggle pill
+local buyPill = Instance.new("Frame", buyCard)
+buyPill.Size = UDim2.new(0, 38, 0, 20)
+buyPill.Position = UDim2.new(1, -50, 0, 10)
+buyPill.BackgroundColor3 = C.TOGGLE_OFF
+buyPill.BorderSizePixel = 0
+corner(buyPill, 10)
+
+local buyKnob = Instance.new("Frame", buyPill)
+buyKnob.Size = UDim2.new(0, 14, 0, 14)
+buyKnob.Position = UDim2.new(0, 3, 0.5, -7)
+buyKnob.BackgroundColor3 = C.MUTED
+buyKnob.BorderSizePixel = 0
+corner(buyKnob, 10)
+
+-- Toggle button hanya cover area kanan atas (bukan seluruh card)
+local buyToggleBtn = Instance.new("TextButton", buyCard)
+buyToggleBtn.Size = UDim2.new(0, 80, 0, 40)
+buyToggleBtn.Position = UDim2.new(1, -90, 0, 0)
+buyToggleBtn.BackgroundTransparency = 1
+buyToggleBtn.Text = ""
+buyToggleBtn.MouseButton1Click:Connect(function()
+	autoBuyEnabled = not autoBuyEnabled
+	TweenService:Create(buyPill, TweenInfo.new(0.2), {
+		BackgroundColor3 = autoBuyEnabled and C.TOGGLE_ON or C.TOGGLE_OFF
+	}):Play()
+	TweenService:Create(buyKnob, TweenInfo.new(0.2), {
+		Position = autoBuyEnabled and UDim2.new(1,-17,0.5,-7) or UDim2.new(0,3,0.5,-7),
+		BackgroundColor3 = autoBuyEnabled and C.TEXT or C.MUTED,
+	}):Play()
+end)
+
+-- Divider
+local divider = Instance.new("Frame", buyCard)
+divider.Size = UDim2.new(1, -24, 0, 1)
+divider.Position = UDim2.new(0, 12, 0, 48)
+divider.BackgroundColor3 = C.BORDER; divider.BorderSizePixel = 0
+
+-- Slider label + nilai
+local sliderTitle = label(buyCard, "Jumlah beli per item :", 11, C.MUTED, Enum.Font.Gotham)
+sliderTitle.Size = UDim2.new(0.65, 0, 0, 14)
+sliderTitle.Position = UDim2.new(0, 12, 0, 58)
+
+local sliderValLbl = label(buyCard, "1", 14, C.ACCENT, Enum.Font.GothamBold)
+sliderValLbl.Size = UDim2.new(0, 44, 0, 14)
+sliderValLbl.Position = UDim2.new(1, -56, 0, 57)
+sliderValLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+-- Slider track
+local sliderTrack = Instance.new("Frame", buyCard)
+sliderTrack.Size = UDim2.new(1, -24, 0, 6)
+sliderTrack.Position = UDim2.new(0, 12, 0, 82)
+sliderTrack.BackgroundColor3 = C.TOGGLE_OFF
+sliderTrack.BorderSizePixel = 0
+corner(sliderTrack, 4)
+
+local sliderFill = Instance.new("Frame", sliderTrack)
+sliderFill.Size = UDim2.new(0, 0, 1, 0)
+sliderFill.BackgroundColor3 = C.ACCENT
+sliderFill.BorderSizePixel = 0
+corner(sliderFill, 4)
+
+-- Thumb (lebih besar agar mudah drag di mobile)
+local sliderThumb = Instance.new("Frame", sliderTrack)
+sliderThumb.Size = UDim2.new(0, 18, 0, 18)
+sliderThumb.AnchorPoint = Vector2.new(0.5, 0.5)
+sliderThumb.Position = UDim2.new(0, 0, 0.5, 0)
+sliderThumb.BackgroundColor3 = C.TEXT
+sliderThumb.BorderSizePixel = 0
+corner(sliderThumb, 10)
+
+local minLbl = label(buyCard, "1", 10, C.MUTED, Enum.Font.Gotham)
+minLbl.Size = UDim2.new(0, 20, 0, 12)
+minLbl.Position = UDim2.new(0, 12, 0, 92)
+
+local maxLbl = label(buyCard, "100", 10, C.MUTED, Enum.Font.Gotham)
+maxLbl.Size = UDim2.new(0, 30, 0, 12)
+maxLbl.Position = UDim2.new(1, -42, 0, 92)
+maxLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+local statusBuyLbl = label(buyCard, "Status: OFF", 11, C.MUTED, Enum.Font.Gotham)
+statusBuyLbl.Size = UDim2.new(1, -24, 0, 14)
+statusBuyLbl.Position = UDim2.new(0, 12, 0, 146)
+
+-- ================================================
+-- SLIDER LOGIC
+-- Kunci bug fix: saat thumb/track di-InputBegan,
+-- set sliderDragging=true DAN paksa dragging=false
+-- ================================================
+local MIN_BUY, MAX_BUY = 1, 100
+
+local function updateSlider(val)
+	val = math.clamp(math.round(val), MIN_BUY, MAX_BUY)
+	autoBuyAmount = val
+	sliderValLbl.Text = tostring(val)
+	local pct = (val - MIN_BUY) / (MAX_BUY - MIN_BUY)
+	sliderFill.Size = UDim2.new(pct, 0, 1, 0)
+	sliderThumb.Position = UDim2.new(pct, 0, 0.5, 0)
+end
+updateSlider(1)
+
+local function getSliderVal(inputX)
+	local trackX   = sliderTrack.AbsolutePosition.X
+	local trackW   = sliderTrack.AbsoluteSize.X
+	local pct      = math.clamp((inputX - trackX) / trackW, 0, 1)
+	return MIN_BUY + pct * (MAX_BUY - MIN_BUY)
+end
+
+sliderThumb.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		sliderDragging = true
+		dragging = false  -- hentikan drag frame
+	end
+end)
+
+sliderTrack.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		sliderDragging = true
+		dragging = false  -- hentikan drag frame
+		updateSlider(getSliderVal(input.Position.X))
+	end
+end)
+
+-- Pergerakan slider (ditangani di UIS.InputChanged global di bawah)
+-- UIS.InputChanged global sudah ada 1 handler di drag system,
+-- tambahkan 1 lagi khusus slider agar tidak konflik
+UIS.InputChanged:Connect(function(input)
+	if sliderDragging and (
+		input.UserInputType == Enum.UserInputType.MouseMovement or
+		input.UserInputType == Enum.UserInputType.Touch) then
+		updateSlider(getSliderVal(input.Position.X))
+	end
+end)
+
+-- ================================================
+-- TAB 2: TELEPORT
+-- ================================================
+tabFrames[2] = makeTabFrame()
+tabFrames[2].Visible = false
+
+-- LOKASI TUJUAN
+local tpLocations = {
+	{name = "MS Dealer",    pos = CFrame.new( 510,  3,  608)},
+	{name = "Casino",       pos = CFrame.new(1175, 20,   30)},
+	{name = "Apt Casino",   pos = CFrame.new(1190,  3, -243)},
+	{name = "Apt Sampah 1", pos = CFrame.new( 902, 10,   72)},
+	{name = "Apt Sampah 2", pos = CFrame.new( 931, 10,   72)},
+	{name = "Apt Tier 1",   pos = CFrame.new(1018, 10,  243)},
+	{name = "Apt Tier 2",   pos = CFrame.new(1018, 10,  214)},
+	{name = "Apt RS 2",     pos = CFrame.new(1108, 10,  427)},
+	{name = "Apt RS 1",     pos = CFrame.new(1109, 10,  456)},
+}
+
+for i, loc in ipairs(tpLocations) do
+	makeActionBtn(tabFrames[2], loc.name, function()
+		hrp.CFrame = loc.pos
+	end, i)
+end
+
+-- ================================================
+-- TAB 3: MISC
+-- ================================================
+tabFrames[3] = makeTabFrame()
+tabFrames[3].Visible = false
+makeToggle(tabFrames[3], "Fly",        "Terbang bebas",         "Fly",       1)
+makeToggle(tabFrames[3], "Speed Hack", "Kecepatan karakter x3", "SpeedHack", 2)
+makeToggle(tabFrames[3], "Noclip",     "Tembus dinding",        "Noclip",    3)
+makeToggle(tabFrames[3], "ESP",        "Lihat player lain",     "ESP",       4)
+
+-- ================================================
+-- TAB 4: CREDITS
+-- ================================================
+tabFrames[4] = makeTabFrame()
+tabFrames[4].Visible = false
+
+local creditCard = Instance.new("Frame", tabFrames[4])
+creditCard.Size = UDim2.new(1, 0, 0, 150)
+creditCard.BackgroundColor3 = C.BG2
+creditCard.BorderSizePixel = 0
+creditCard.LayoutOrder = 1
+corner(creditCard)
+Instance.new("UIStroke", creditCard).Color = C.BORDER
+
+local avatar = Instance.new("Frame", creditCard)
+avatar.Size = UDim2.new(0, 52, 0, 52)
+avatar.Position = UDim2.new(0.5, -26, 0, 16)
+avatar.BackgroundColor3 = C.ACCENT
+avatar.BorderSizePixel = 0; corner(avatar, 26)
+
+local avatarLbl = Instance.new("TextLabel", avatar)
+avatarLbl.Size = UDim2.new(1, 0, 1, 0)
+avatarLbl.BackgroundTransparency = 1
+avatarLbl.Text = "K"; avatarLbl.TextColor3 = C.TEXT
+avatarLbl.TextSize = 22; avatarLbl.Font = Enum.Font.GothamBold
+
+local devName = label(creditCard, "KEMERUS", 16, C.TEXT, Enum.Font.GothamBold)
+devName.Size = UDim2.new(1, 0, 0, 20); devName.Position = UDim2.new(0, 0, 0, 74)
+devName.TextXAlignment = Enum.TextXAlignment.Center
+
+local devRole = label(creditCard, "Developer & Creator", 12, C.MUTED, Enum.Font.Gotham)
+devRole.Size = UDim2.new(1, 0, 0, 16); devRole.Position = UDim2.new(0, 0, 0, 94)
+devRole.TextXAlignment = Enum.TextXAlignment.Center
+
+local devDesc = label(creditCard, "Script dibuat oleh Kemerus  •  v2.0  •  2025", 11, C.MUTED, Enum.Font.Gotham)
+devDesc.Size = UDim2.new(1, 0, 0, 16); devDesc.Position = UDim2.new(0, 0, 0, 124)
+devDesc.TextXAlignment = Enum.TextXAlignment.Center
+
+-- ================================================
+-- LOGIN LOGIC
+-- ================================================
+local function showMenu()
+	loginFrame.Visible = false
+	menuFrame.Visible = true
+	statusDot.BackgroundColor3 = C.SUCCESS
+	statusTxt.Text = "CONNECTED  •  KEMERUS HUB"
+	statusTxt.TextColor3 = C.SUCCESS
+end
+
+loginBtn.MouseButton1Click:Connect(function()
+	if keybox.Text == KEY then
+		TweenService:Create(loginFrame, TweenInfo.new(0.4), {BackgroundTransparency = 1}):Play()
+		task.wait(0.4); showMenu()
+	else
+		keybox.Text = ""
+		keybox.PlaceholderText = "Key Salah!"
+		errLabel.Text = "Key tidak valid. Coba lagi."
+		keyStroke.Color = C.DANGER
+		task.wait(2)
+		keybox.PlaceholderText = "Masukkan Key..."
+		errLabel.Text = ""
+		keyStroke.Color = C.BORDER
+	end
+end)
+
+-- ================================================
+-- FEATURE LOGIC
+-- ================================================
+
+-- Anti AFK
+local vUser = game:GetService("VirtualUser")
+plr.Idled:Connect(function()
+	if state.AntiAFK then
+		vUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+		task.wait(1)
+		vUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+	end
+end)
+
+-- ================================================
+-- AUTO BUY LOOP
+-- FireServer MoneyChanged sebanyak autoBuyAmount kali per item
+-- Tiap item dieksekusi satu per satu dengan jeda kecil
+-- ================================================
+local RS = game:GetService("ReplicatedStorage")
+local moneyChanged = RS:WaitForChild("RemoteEvents"):WaitForChild("MoneyChanged")
+
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		if autoBuyEnabled then
+			-- Update label status
+			statusBuyLbl.Text = "Status: ON  |  x" .. autoBuyAmount .. " per item"
+			statusBuyLbl.TextColor3 = C.SUCCESS
+			for _, item in ipairs(ITEMS) do
+				for i = 1, autoBuyAmount do
+					pcall(function()
+						moneyChanged:FireServer(item.id)
+					end)
+					task.wait(0.05)
+				end
+			end
+		else
+			statusBuyLbl.Text = "Status: OFF"
+			statusBuyLbl.TextColor3 = C.MUTED
+		end
+	end
+end)
+
+-- Speed Hack
+RunService.Heartbeat:Connect(function()
+	hum.WalkSpeed = state.SpeedHack and 48 or 16
+end)
+
+-- Noclip
+RunService.Stepped:Connect(function()
+	if state.Noclip then
+		for _, part in ipairs(char:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+			end
+		end
+	end
+end)
+
+-- Fly
+local flyBody
+local function startFly()
+	flyBody = Instance.new("BodyVelocity", hrp)
+	flyBody.Velocity = Vector3.new(0,0,0)
+	flyBody.MaxForce = Vector3.new(1e5,1e5,1e5)
+end
+local function stopFly()
+	if flyBody then flyBody:Destroy() end
+end
+
+RunService.Heartbeat:Connect(function()
+	if state.Fly then
+		if not flyBody or not flyBody.Parent then startFly() end
+		local cam = workspace.CurrentCamera
+		flyBody.Velocity =
+			cam.CFrame.LookVector * (UIS:IsKeyDown(Enum.KeyCode.W) and 60 or UIS:IsKeyDown(Enum.KeyCode.S) and -60 or 0)
+			+ Vector3.new(0, UIS:IsKeyDown(Enum.KeyCode.Space) and 40 or UIS:IsKeyDown(Enum.KeyCode.LeftControl) and -40 or 0, 0)
+	else
+		stopFly()
+	end
+end)
+
+-- ================================================
+-- ESP SYSTEM
+-- Highlight kotak putih + nama di atas kepala
+-- ================================================
+local espObjects = {}
+
+local function createESP(target)
+	if target == plr then return end
+	if espObjects[target] then return end
+	local targetChar = target.Character
+	if not targetChar then return end
+
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "KemerusESP"
+	highlight.Adornee = targetChar
+	highlight.FillColor = Color3.new(1, 1, 1)
+	highlight.FillTransparency = 0.85
+	highlight.OutlineColor = Color3.new(1, 1, 1)
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent = targetChar
+
+	local head = targetChar:FindFirstChild("Head")
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "KemerusESPName"
+	billboard.Size = UDim2.new(0, 120, 0, 30)
+	billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Adornee = head
+	billboard.Parent = targetChar
+
+	local nameLabel = Instance.new("TextLabel", billboard)
+	nameLabel.Size = UDim2.new(1, 0, 1, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = target.DisplayName .. "\n[" .. target.Name .. "]"
+	nameLabel.TextColor3 = Color3.new(1, 1, 1)
+	nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	nameLabel.TextStrokeTransparency = 0
+	nameLabel.TextSize = 13
+	nameLabel.Font = Enum.Font.GothamBold
+
+	espObjects[target] = {highlight = highlight, billboard = billboard}
+end
+
+local function removeESP(target)
+	if espObjects[target] then
+		pcall(function()
+			espObjects[target].highlight:Destroy()
+			espObjects[target].billboard:Destroy()
+		end)
+		espObjects[target] = nil
+	end
+end
+
+local function clearAllESP()
+	for target in pairs(espObjects) do removeESP(target) end
+end
+
+RunService.Heartbeat:Connect(function()
+	if not state.ESP then clearAllESP(); return end
+	for _, target in ipairs(Players:GetPlayers()) do
+		if target ~= plr and target.Character then createESP(target) end
+	end
+	for target in pairs(espObjects) do
+		if not target.Parent then removeESP(target) end
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(t) removeESP(t) end)
+
+for _, target in ipairs(Players:GetPlayers()) do
+	if target ~= plr then
+		target.CharacterAdded:Connect(function()
+			task.wait(1)
+			if state.ESP then removeESP(target); createESP(target) end
+		end)
+	end
+end
+
+Players.PlayerAdded:Connect(function(target)
+	target.CharacterAdded:Connect(function()
+		task.wait(1)
+		if state.ESP then removeESP(target); createESP(target) end
+	end)
+end)
+
+print("[KEMERUS HUB v2.0] Loaded!")
