@@ -1,5 +1,6 @@
 -- KEMERUS HUB v2.0
 -- Script by Kemerus
+-- ADDED: Delete Object + Undo feature
 
 local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
@@ -22,13 +23,106 @@ local state = {
 	SpeedHack  = false,
 	Noclip     = false,
 	ESP        = false,
+	DeleteMode = false,   -- NEW: Delete Object mode
 }
 
+-- ================================================
+-- DELETE OBJECT SYSTEM (State & Stack)
+-- ================================================
+local deleteStack   = {}      -- { part, parent, cframe, properties }
+local MAX_UNDO      = 50      -- batas tumpukan undo
+local deleteConn    = nil     -- koneksi mouse saat delete mode aktif
+local undoCountLbl  = nil     -- referensi label counter (diisi setelah GUI dibuat)
+
+-- Simpan properti penting sebelum hapus agar bisa di-restore
+local function savePartData(part)
+	return {
+		part       = part,
+		parent     = part.Parent,
+		cframe     = part:IsA("BasePart") and part.CFrame or nil,
+		properties = {
+			Anchored    = part:IsA("BasePart") and part.Anchored or nil,
+			CanCollide  = part:IsA("BasePart") and part.CanCollide or nil,
+			Transparency = part:IsA("BasePart") and part.Transparency or nil,
+		}
+	}
+end
+
+local function updateUndoLabel()
+	if undoCountLbl then
+		local n = #deleteStack
+		undoCountLbl.Text = "Tersimpan: " .. n .. "/" .. MAX_UNDO
+		undoCountLbl.TextColor3 = n > 0
+			and Color3.fromRGB(40, 120, 255)
+			or  Color3.fromRGB(85, 85, 110)
+	end
+end
+
+local function deleteObject(part)
+	if not part or not part.Parent then return end
+	-- Jangan hapus bagian karakter sendiri
+	if part:IsDescendantOf(char) then return end
+	-- Jangan hapus terrain
+	if part:IsA("Terrain") then return end
+
+	-- Simpan ke stack
+	local data = savePartData(part)
+	table.insert(deleteStack, data)
+	if #deleteStack > MAX_UNDO then
+		table.remove(deleteStack, 1)
+	end
+
+	-- Hapus (sembunyikan secara lokal)
+	part.Parent = nil
+	updateUndoLabel()
+end
+
+local function undoDelete()
+	if #deleteStack == 0 then return end
+	local data = table.remove(deleteStack)
+	pcall(function()
+		data.part.Parent = data.parent
+		if data.cframe and data.part:IsA("BasePart") then
+			data.part.CFrame = data.cframe
+		end
+	end)
+	updateUndoLabel()
+end
+
+-- Aktif/nonaktif delete mode
+local function setDeleteMode(enabled)
+	state.DeleteMode = enabled
+
+	if enabled then
+		-- Sambungkan klik mouse
+		local mouse = plr:GetMouse()
+		deleteConn = mouse.Button1Down:Connect(function()
+			local target = mouse.Target
+			if target then
+				deleteObject(target)
+			end
+		end)
+	else
+		-- Putuskan koneksi
+		if deleteConn then
+			deleteConn:Disconnect()
+			deleteConn = nil
+		end
+	end
+end
+
+-- Hotkey Z = Undo saat delete mode aktif
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.Z and state.DeleteMode then
+		undoDelete()
+	end
+end)
+
+-- ================================================
 -- AUTO BUY state
 local autoBuyEnabled = false
 local autoBuyAmount  = 1
--- PENTING: deklarasi sliderDragging di sini agar drag frame bisa
--- membaca variabel ini sebelum slider dibuat
 local sliderDragging = false
 
 -- ITEMS AUTO BUY (ID terbaru)
@@ -75,6 +169,7 @@ local C = {
 	DANGER     = Color3.fromRGB(192, 60, 60),
 	TOGGLE_OFF = Color3.fromRGB(30, 30, 46),
 	TOGGLE_ON  = Color3.fromRGB(40, 120, 255),
+	ORANGE     = Color3.fromRGB(255, 140, 30),
 }
 
 -- ================================================
@@ -108,9 +203,6 @@ titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 -- ================================================
 -- DRAG SYSTEM
--- Drag HANYA dari titlebar.
--- Kunci utama bug fix: cek sliderDragging sebelum geser frame,
--- dan set dragging=false saat slider mulai digeser.
 -- ================================================
 local dragging   = false
 local dragStart  = Vector3.new()
@@ -132,7 +224,6 @@ titlebar.InputBegan:Connect(function(input)
 end)
 
 UIS.InputChanged:Connect(function(input)
-	-- Slider sedang digeser → frame tidak boleh ikut gerak
 	if sliderDragging then return end
 	if dragging and (
 		input.UserInputType == Enum.UserInputType.MouseMovement or
@@ -149,7 +240,7 @@ UIS.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 		dragging       = false
-		sliderDragging = false  -- safety reset
+		sliderDragging = false
 	end
 end)
 
@@ -182,6 +273,7 @@ miniBtn.MouseButton1Click:Connect(function()
 end)
 
 closeBtn.MouseButton1Click:Connect(function()
+	setDeleteMode(false)
 	TweenService:Create(frame, TweenInfo.new(0.3), {Size = UDim2.new(0,0,0,0)}):Play()
 	task.wait(0.3); gui:Destroy()
 end)
@@ -321,7 +413,7 @@ local function makeTabFrame()
 	return f
 end
 
-local function makeToggle(parent, labelTxt, subTxt, stateKey, order)
+local function makeToggle(parent, labelTxt, subTxt, stateKey, order, onToggle)
 	local row = Instance.new("Frame", parent)
 	row.Size = UDim2.new(1, 0, 0, 46)
 	row.BackgroundColor3 = C.BG2
@@ -364,10 +456,11 @@ local function makeToggle(parent, labelTxt, subTxt, stateKey, order)
 			Position = on and UDim2.new(1,-17,0.5,-7) or UDim2.new(0,3,0.5,-7),
 			BackgroundColor3 = on and C.TEXT or C.MUTED,
 		}):Play()
+		if onToggle then onToggle(on) end
 	end)
 end
 
-local function makeActionBtn(parent, text, callback, order)
+local function makeActionBtn(parent, text, callback, order, accentColor)
 	local btn = Instance.new("TextButton", parent)
 	btn.Size = UDim2.new(1, 0, 0, 38)
 	btn.BackgroundColor3 = C.BG2
@@ -375,9 +468,10 @@ local function makeActionBtn(parent, text, callback, order)
 	corner(btn)
 	local s = Instance.new("UIStroke", btn); s.Color = C.BORDER
 
+	local dotColor = accentColor or C.ACCENT
 	local dot = Instance.new("Frame", btn)
 	dot.Size = UDim2.new(0, 6, 0, 6); dot.Position = UDim2.new(0, 12, 0.5, -3)
-	dot.BackgroundColor3 = C.ACCENT; dot.BorderSizePixel = 0; corner(dot, 10)
+	dot.BackgroundColor3 = dotColor; dot.BorderSizePixel = 0; corner(dot, 10)
 
 	local lbl = label(btn, text, 13, C.TEXT, Enum.Font.GothamBold)
 	lbl.Size = UDim2.new(1, -36, 1, 0); lbl.Position = UDim2.new(0, 26, 0, 0)
@@ -412,7 +506,6 @@ corner(buyCard)
 local buyStroke = Instance.new("UIStroke", buyCard)
 buyStroke.Color = C.BORDER; buyStroke.Thickness = 1
 
--- Header
 local buyHeaderLbl = label(buyCard, "Auto Buy", 13, C.TEXT, Enum.Font.GothamBold)
 buyHeaderLbl.Size = UDim2.new(0.55, 0, 0, 18)
 buyHeaderLbl.Position = UDim2.new(0, 12, 0, 10)
@@ -421,7 +514,6 @@ local buySubLbl = label(buyCard, "Item 1 (125593)  •  Item 2 (125493)  •  It
 buySubLbl.Size = UDim2.new(1, -100, 0, 14)
 buySubLbl.Position = UDim2.new(0, 12, 0, 27)
 
--- Toggle pill
 local buyPill = Instance.new("Frame", buyCard)
 buyPill.Size = UDim2.new(0, 38, 0, 20)
 buyPill.Position = UDim2.new(1, -50, 0, 10)
@@ -436,7 +528,6 @@ buyKnob.BackgroundColor3 = C.MUTED
 buyKnob.BorderSizePixel = 0
 corner(buyKnob, 10)
 
--- Toggle button hanya cover area kanan atas (bukan seluruh card)
 local buyToggleBtn = Instance.new("TextButton", buyCard)
 buyToggleBtn.Size = UDim2.new(0, 80, 0, 40)
 buyToggleBtn.Position = UDim2.new(1, -90, 0, 0)
@@ -453,13 +544,11 @@ buyToggleBtn.MouseButton1Click:Connect(function()
 	}):Play()
 end)
 
--- Divider
 local divider = Instance.new("Frame", buyCard)
 divider.Size = UDim2.new(1, -24, 0, 1)
 divider.Position = UDim2.new(0, 12, 0, 48)
 divider.BackgroundColor3 = C.BORDER; divider.BorderSizePixel = 0
 
--- Slider label + nilai
 local sliderTitle = label(buyCard, "Jumlah beli per item :", 11, C.MUTED, Enum.Font.Gotham)
 sliderTitle.Size = UDim2.new(0.65, 0, 0, 14)
 sliderTitle.Position = UDim2.new(0, 12, 0, 58)
@@ -469,7 +558,6 @@ sliderValLbl.Size = UDim2.new(0, 44, 0, 14)
 sliderValLbl.Position = UDim2.new(1, -56, 0, 57)
 sliderValLbl.TextXAlignment = Enum.TextXAlignment.Right
 
--- Slider track
 local sliderTrack = Instance.new("Frame", buyCard)
 sliderTrack.Size = UDim2.new(1, -24, 0, 6)
 sliderTrack.Position = UDim2.new(0, 12, 0, 82)
@@ -483,7 +571,6 @@ sliderFill.BackgroundColor3 = C.ACCENT
 sliderFill.BorderSizePixel = 0
 corner(sliderFill, 4)
 
--- Thumb (lebih besar agar mudah drag di mobile)
 local sliderThumb = Instance.new("Frame", sliderTrack)
 sliderThumb.Size = UDim2.new(0, 18, 0, 18)
 sliderThumb.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -505,11 +592,6 @@ local statusBuyLbl = label(buyCard, "Status: OFF", 11, C.MUTED, Enum.Font.Gotham
 statusBuyLbl.Size = UDim2.new(1, -24, 0, 14)
 statusBuyLbl.Position = UDim2.new(0, 12, 0, 146)
 
--- ================================================
--- SLIDER LOGIC
--- Kunci bug fix: saat thumb/track di-InputBegan,
--- set sliderDragging=true DAN paksa dragging=false
--- ================================================
 local MIN_BUY, MAX_BUY = 1, 100
 
 local function updateSlider(val)
@@ -533,7 +615,7 @@ sliderThumb.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 		sliderDragging = true
-		dragging = false  -- hentikan drag frame
+		dragging = false
 	end
 end)
 
@@ -541,14 +623,11 @@ sliderTrack.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 		sliderDragging = true
-		dragging = false  -- hentikan drag frame
+		dragging = false
 		updateSlider(getSliderVal(input.Position.X))
 	end
 end)
 
--- Pergerakan slider (ditangani di UIS.InputChanged global di bawah)
--- UIS.InputChanged global sudah ada 1 handler di drag system,
--- tambahkan 1 lagi khusus slider agar tidak konflik
 UIS.InputChanged:Connect(function(input)
 	if sliderDragging and (
 		input.UserInputType == Enum.UserInputType.MouseMovement or
@@ -563,7 +642,6 @@ end)
 tabFrames[2] = makeTabFrame()
 tabFrames[2].Visible = false
 
--- LOKASI TUJUAN
 local tpLocations = {
 	{name = "MS Dealer",    pos = CFrame.new( 510,  3,  608)},
 	{name = "Casino",       pos = CFrame.new(1175, 20,   30)},
@@ -583,14 +661,107 @@ for i, loc in ipairs(tpLocations) do
 end
 
 -- ================================================
--- TAB 3: MISC
+-- TAB 3: MISC  (+ DELETE OBJECT SYSTEM)
 -- ================================================
 tabFrames[3] = makeTabFrame()
 tabFrames[3].Visible = false
+
+-- Toggle biasa
 makeToggle(tabFrames[3], "Fly",        "Terbang bebas",         "Fly",       1)
 makeToggle(tabFrames[3], "Speed Hack", "Kecepatan karakter x3", "SpeedHack", 2)
 makeToggle(tabFrames[3], "Noclip",     "Tembus dinding",        "Noclip",    3)
 makeToggle(tabFrames[3], "ESP",        "Lihat player lain",     "ESP",       4)
+
+-- ================================================
+-- DELETE OBJECT CARD  (NEW!)
+-- ================================================
+local delCard = Instance.new("Frame", tabFrames[3])
+delCard.Size = UDim2.new(1, 0, 0, 148)
+delCard.BackgroundColor3 = C.BG2
+delCard.BorderSizePixel = 0
+delCard.LayoutOrder = 5
+corner(delCard)
+local delStroke = Instance.new("UIStroke", delCard)
+delStroke.Color = C.BORDER; delStroke.Thickness = 1
+
+-- Header
+local delHeaderLbl = label(delCard, "Hapus Objek", 13, C.TEXT, Enum.Font.GothamBold)
+delHeaderLbl.Size = UDim2.new(0.55, 0, 0, 18)
+delHeaderLbl.Position = UDim2.new(0, 12, 0, 10)
+
+local delSubLbl = label(delCard, "Klik objek di dunia untuk menghapus", 10, C.MUTED, Enum.Font.Gotham)
+delSubLbl.Size = UDim2.new(1, -100, 0, 14)
+delSubLbl.Position = UDim2.new(0, 12, 0, 27)
+
+-- Toggle pill Delete Mode
+local delPill = Instance.new("Frame", delCard)
+delPill.Size = UDim2.new(0, 38, 0, 20)
+delPill.Position = UDim2.new(1, -50, 0, 10)
+delPill.BackgroundColor3 = C.TOGGLE_OFF
+delPill.BorderSizePixel = 0
+corner(delPill, 10)
+
+local delKnob = Instance.new("Frame", delPill)
+delKnob.Size = UDim2.new(0, 14, 0, 14)
+delKnob.Position = UDim2.new(0, 3, 0.5, -7)
+delKnob.BackgroundColor3 = C.MUTED
+delKnob.BorderSizePixel = 0
+corner(delKnob, 10)
+
+local delToggleBtn = Instance.new("TextButton", delCard)
+delToggleBtn.Size = UDim2.new(0, 80, 0, 40)
+delToggleBtn.Position = UDim2.new(1, -90, 0, 0)
+delToggleBtn.BackgroundTransparency = 1
+delToggleBtn.Text = ""
+delToggleBtn.MouseButton1Click:Connect(function()
+	local on = not state.DeleteMode
+	setDeleteMode(on)
+	TweenService:Create(delPill, TweenInfo.new(0.2), {
+		BackgroundColor3 = on and C.ORANGE or C.TOGGLE_OFF
+	}):Play()
+	TweenService:Create(delKnob, TweenInfo.new(0.2), {
+		Position = on and UDim2.new(1,-17,0.5,-7) or UDim2.new(0,3,0.5,-7),
+		BackgroundColor3 = on and C.TEXT or C.MUTED,
+	}):Play()
+end)
+
+-- Divider
+local delDiv = Instance.new("Frame", delCard)
+delDiv.Size = UDim2.new(1, -24, 0, 1)
+delDiv.Position = UDim2.new(0, 12, 0, 50)
+delDiv.BackgroundColor3 = C.BORDER; delDiv.BorderSizePixel = 0
+
+-- Info: hotkey
+local hotkeyLbl = label(delCard, "Tekan  [Z]  untuk Undo hapus terakhir", 11, C.MUTED, Enum.Font.Gotham)
+hotkeyLbl.Size = UDim2.new(1, -24, 0, 14)
+hotkeyLbl.Position = UDim2.new(0, 12, 0, 60)
+
+-- Counter undo stack
+undoCountLbl = label(delCard, "Tersimpan: 0/" .. MAX_UNDO, 11, C.MUTED, Enum.Font.GothamBold)
+undoCountLbl.Size = UDim2.new(1, -24, 0, 14)
+undoCountLbl.Position = UDim2.new(0, 12, 0, 78)
+
+-- Tombol Undo
+local undoBtn = makeActionBtn(delCard, "Undo Hapus Terakhir  [Z]", function()
+	undoDelete()
+end, 0, C.ORANGE)
+undoBtn.Size = UDim2.new(1, -24, 0, 34)
+undoBtn.Position = UDim2.new(0, 12, 0, 98)
+undoBtn.LayoutOrder = nil  -- diatur manual karena parent bukan ScrollingFrame
+
+-- Tombol Clear Stack
+local clearBtn = makeActionBtn(delCard, "Hapus Semua Riwayat Undo", function()
+	deleteStack = {}
+	updateUndoLabel()
+end, 0, C.DANGER)
+clearBtn.Size = UDim2.new(1, -24, 0, 34)
+clearBtn.Position = UDim2.new(0, 12, 0, 106)
+-- Geser agar tidak bertindih dengan undoBtn
+undoBtn.Position  = UDim2.new(0, 12, 0, 96)
+clearBtn.Position = UDim2.new(0, 12, 0, 135)  -- di luar card height sedikit, bisa sesuaikan
+
+-- Resize card supaya muat semua
+delCard.Size = UDim2.new(1, 0, 0, 182)
 
 -- ================================================
 -- TAB 4: CREDITS
@@ -671,11 +842,7 @@ plr.Idled:Connect(function()
 	end
 end)
 
--- ================================================
--- AUTO BUY LOOP
--- FireServer MoneyChanged sebanyak autoBuyAmount kali per item
--- Tiap item dieksekusi satu per satu dengan jeda kecil
--- ================================================
+-- Auto Buy Loop
 local RS = game:GetService("ReplicatedStorage")
 local moneyChanged = RS:WaitForChild("RemoteEvents"):WaitForChild("MoneyChanged")
 
@@ -683,7 +850,6 @@ task.spawn(function()
 	while true do
 		task.wait(0.5)
 		if autoBuyEnabled then
-			-- Update label status
 			statusBuyLbl.Text = "Status: ON  |  x" .. autoBuyAmount .. " per item"
 			statusBuyLbl.TextColor3 = C.SUCCESS
 			for _, item in ipairs(ITEMS) do
@@ -742,7 +908,6 @@ end)
 
 -- ================================================
 -- ESP SYSTEM
--- Highlight kotak putih + nama di atas kepala
 -- ================================================
 local espObjects = {}
 
@@ -826,4 +991,7 @@ Players.PlayerAdded:Connect(function(target)
 	end)
 end)
 
-print("[KEMERUS HUB v2.0] Loaded!")
+-- Inisialisasi label undo counter
+updateUndoLabel()
+
+print("[KEMERUS HUB v2.0] Loaded! | Delete Object + Undo aktif di Tab MISC")
