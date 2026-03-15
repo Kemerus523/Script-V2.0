@@ -1266,21 +1266,13 @@ local function createESP(target)
 	local targetChar = target.Character
 	if not targetChar then return end
 
-	local highlight = Instance.new("Highlight")
-	highlight.Name = "KemerusESP"
-	highlight.Adornee = targetChar
-	highlight.FillColor = Color3.new(1, 1, 1)
-	highlight.FillTransparency = 0.85
-	highlight.OutlineColor = Color3.new(1, 1, 1)
-	highlight.OutlineTransparency = 0
-	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-	highlight.Parent = targetChar
-
 	local head = targetChar:FindFirstChild("Head")
+	if not head then return end
+
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "KemerusESPName"
-	billboard.Size = UDim2.new(0, 120, 0, 30)
-	billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+	billboard.Size = UDim2.new(0, 140, 0, 36)
+	billboard.StudsOffset = Vector3.new(0, 3, 0)
 	billboard.AlwaysOnTop = true
 	billboard.Adornee = head
 	billboard.Parent = targetChar
@@ -1289,19 +1281,18 @@ local function createESP(target)
 	nameLabel.Size = UDim2.new(1, 0, 1, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Text = target.DisplayName .. "\n[" .. target.Name .. "]"
-	nameLabel.TextColor3 = Color3.new(1, 1, 1)
+	nameLabel.TextColor3 = Color3.fromRGB(40, 200, 255)
 	nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
 	nameLabel.TextStrokeTransparency = 0
 	nameLabel.TextSize = 13
 	nameLabel.Font = Enum.Font.GothamBold
 
-	espObjects[target] = {highlight = highlight, billboard = billboard}
+	espObjects[target] = {billboard = billboard}
 end
 
 local function removeESP(target)
 	if espObjects[target] then
 		pcall(function()
-			espObjects[target].highlight:Destroy()
 			espObjects[target].billboard:Destroy()
 		end)
 		espObjects[target] = nil
