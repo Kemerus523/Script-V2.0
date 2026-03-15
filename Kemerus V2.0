@@ -1,6 +1,6 @@
 -- KEMERUS HUB v2.0
 -- Script by Kemerus
--- ADDED: Delete Object + Undo feature
+-- ADDED: Delete Object + Undo feature + Inventory System
 
 local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
@@ -23,26 +23,71 @@ local state = {
 	SpeedHack  = false,
 	Noclip     = false,
 	ESP        = false,
-	DeleteMode = false,   -- NEW: Delete Object mode
+	DeleteMode = false,
+	Aimbot     = false,
 }
+
+-- ================================================
+-- INVENTORY SYSTEM
+-- ================================================
+local inventory = {
+	Water          = 0,
+	BlockSugarBag  = 0,
+	Gelatin        = 0,
+}
+
+local INVENTORY_DISPLAY = {
+	{ key = "Water",         label = "Water",          icon = "💧" },
+	{ key = "BlockSugarBag", label = "Block Sugar Bag", icon = "🍬" },
+	{ key = "Gelatin",       label = "Gelatin",         icon = "🟡" },
+}
+
+-- Sesuaikan ID item dengan game kamu
+local INVENTORY_ITEM_IDS = {
+	[125593] = "Water",
+	[125493] = "BlockSugarBag",
+	[125423] = "Gelatin",
+}
+
+local inventoryLabels = {}
+
+local function updateInventoryLabel(key)
+	if inventoryLabels[key] then
+		inventoryLabels[key].Text = tostring(inventory[key])
+	end
+end
+
+local function addInventoryItem(itemKey, amount)
+	amount = amount or 1
+	if inventory[itemKey] ~= nil then
+		inventory[itemKey] = inventory[itemKey] + amount
+		updateInventoryLabel(itemKey)
+	end
+end
+
+local function resetInventory()
+	for key in pairs(inventory) do
+		inventory[key] = 0
+		updateInventoryLabel(key)
+	end
+end
 
 -- ================================================
 -- DELETE OBJECT SYSTEM (State & Stack)
 -- ================================================
-local deleteStack   = {}      -- { part, parent, cframe, properties }
-local MAX_UNDO      = 50      -- batas tumpukan undo
-local deleteConn    = nil     -- koneksi mouse saat delete mode aktif
-local undoCountLbl  = nil     -- referensi label counter (diisi setelah GUI dibuat)
+local deleteStack   = {}
+local MAX_UNDO      = 50
+local deleteConn    = nil
+local undoCountLbl  = nil
 
--- Simpan properti penting sebelum hapus agar bisa di-restore
 local function savePartData(part)
 	return {
 		part       = part,
 		parent     = part.Parent,
 		cframe     = part:IsA("BasePart") and part.CFrame or nil,
 		properties = {
-			Anchored    = part:IsA("BasePart") and part.Anchored or nil,
-			CanCollide  = part:IsA("BasePart") and part.CanCollide or nil,
+			Anchored     = part:IsA("BasePart") and part.Anchored or nil,
+			CanCollide   = part:IsA("BasePart") and part.CanCollide or nil,
 			Transparency = part:IsA("BasePart") and part.Transparency or nil,
 		}
 	}
@@ -60,19 +105,15 @@ end
 
 local function deleteObject(part)
 	if not part or not part.Parent then return end
-	-- Jangan hapus bagian karakter sendiri
 	if part:IsDescendantOf(char) then return end
-	-- Jangan hapus terrain
 	if part:IsA("Terrain") then return end
 
-	-- Simpan ke stack
 	local data = savePartData(part)
 	table.insert(deleteStack, data)
 	if #deleteStack > MAX_UNDO then
 		table.remove(deleteStack, 1)
 	end
 
-	-- Hapus (sembunyikan secara lokal)
 	part.Parent = nil
 	updateUndoLabel()
 end
@@ -89,12 +130,10 @@ local function undoDelete()
 	updateUndoLabel()
 end
 
--- Aktif/nonaktif delete mode
 local function setDeleteMode(enabled)
 	state.DeleteMode = enabled
 
 	if enabled then
-		-- Sambungkan klik mouse
 		local mouse = plr:GetMouse()
 		deleteConn = mouse.Button1Down:Connect(function()
 			local target = mouse.Target
@@ -103,7 +142,6 @@ local function setDeleteMode(enabled)
 			end
 		end)
 	else
-		-- Putuskan koneksi
 		if deleteConn then
 			deleteConn:Disconnect()
 			deleteConn = nil
@@ -111,7 +149,6 @@ local function setDeleteMode(enabled)
 	end
 end
 
--- Hotkey Z = Undo saat delete mode aktif
 UIS.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 	if input.KeyCode == Enum.KeyCode.Z and state.DeleteMode then
@@ -125,7 +162,6 @@ local autoBuyEnabled = false
 local autoBuyAmount  = 1
 local sliderDragging = false
 
--- ITEMS AUTO BUY (ID terbaru)
 local ITEMS = {
 	{name = "Item 1", id = 125593},
 	{name = "Item 2", id = 125493},
@@ -510,7 +546,7 @@ local buyHeaderLbl = label(buyCard, "Auto Buy", 13, C.TEXT, Enum.Font.GothamBold
 buyHeaderLbl.Size = UDim2.new(0.55, 0, 0, 18)
 buyHeaderLbl.Position = UDim2.new(0, 12, 0, 10)
 
-local buySubLbl = label(buyCard, "Item 1 (125593)  •  Item 2 (125493)  •  Item 3 (125423)", 10, C.MUTED, Enum.Font.Gotham)
+local buySubLbl = label(buyCard, "Water (125593)  •  Block Sugar Bag (125493)  •  Gelatin (125423)", 10, C.MUTED, Enum.Font.Gotham)
 buySubLbl.Size = UDim2.new(1, -100, 0, 14)
 buySubLbl.Position = UDim2.new(0, 12, 0, 27)
 
@@ -637,6 +673,96 @@ UIS.InputChanged:Connect(function(input)
 end)
 
 -- ================================================
+-- INVENTORY CARD  (Tab 1 - bawah Auto Buy)
+-- ================================================
+local invCard = Instance.new("Frame", tabFrames[1])
+invCard.BackgroundColor3 = C.BG2
+invCard.BorderSizePixel = 0
+invCard.LayoutOrder = 5
+corner(invCard)
+local invStroke = Instance.new("UIStroke", invCard)
+invStroke.Color = C.BORDER; invStroke.Thickness = 1
+
+-- Header inventory
+local invHeaderLbl = label(invCard, "📦  Inventory", 13, C.TEXT, Enum.Font.GothamBold)
+invHeaderLbl.Size = UDim2.new(0.7, 0, 0, 18)
+invHeaderLbl.Position = UDim2.new(0, 12, 0, 10)
+
+-- Divider header
+local invDiv = Instance.new("Frame", invCard)
+invDiv.Size = UDim2.new(1, -24, 0, 1)
+invDiv.Position = UDim2.new(0, 12, 0, 34)
+invDiv.BackgroundColor3 = C.BORDER; invDiv.BorderSizePixel = 0
+
+-- Tombol RESET inventory
+local invResetBtn = Instance.new("TextButton", invCard)
+invResetBtn.Size = UDim2.new(0, 54, 0, 18)
+invResetBtn.Position = UDim2.new(1, -66, 0, 10)
+invResetBtn.BackgroundColor3 = C.DANGER
+invResetBtn.Text = "RESET"
+invResetBtn.TextColor3 = C.TEXT
+invResetBtn.TextSize = 10
+invResetBtn.Font = Enum.Font.GothamBold
+invResetBtn.BorderSizePixel = 0
+corner(invResetBtn, 5)
+invResetBtn.MouseButton1Click:Connect(function()
+	resetInventory()
+end)
+
+-- Buat row tiap item inventory
+local rowYStart = 44
+local rowHeight = 36
+local rowGap    = 6
+
+for i, itemData in ipairs(INVENTORY_DISPLAY) do
+	local yPos = rowYStart + (i - 1) * (rowHeight + rowGap)
+
+	local row = Instance.new("Frame", invCard)
+	row.Size = UDim2.new(1, -24, 0, rowHeight)
+	row.Position = UDim2.new(0, 12, 0, yPos)
+	row.BackgroundColor3 = C.BG3
+	row.BorderSizePixel = 0
+	corner(row, 6)
+	local rowStroke = Instance.new("UIStroke", row)
+	rowStroke.Color = C.BORDER; rowStroke.Thickness = 1
+
+	-- Dot aksen kiri
+	local dot = Instance.new("Frame", row)
+	dot.Size = UDim2.new(0, 6, 0, 6)
+	dot.Position = UDim2.new(0, 10, 0.5, -3)
+	dot.BackgroundColor3 = C.SUCCESS
+	dot.BorderSizePixel = 0
+	corner(dot, 10)
+
+	-- Nama item
+	local nameLbl = label(row, itemData.icon .. "  " .. itemData.label, 12, C.TEXT, Enum.Font.GothamBold)
+	nameLbl.Size = UDim2.new(0.65, 0, 1, 0)
+	nameLbl.Position = UDim2.new(0, 24, 0, 0)
+
+	-- Badge jumlah (kanan)
+	local badgeBg = Instance.new("Frame", row)
+	badgeBg.Size = UDim2.new(0, 52, 0, 22)
+	badgeBg.Position = UDim2.new(1, -62, 0.5, -11)
+	badgeBg.BackgroundColor3 = C.BG
+	badgeBg.BorderSizePixel = 0
+	corner(badgeBg, 6)
+	local badgeStroke = Instance.new("UIStroke", badgeBg)
+	badgeStroke.Color = C.ACCENT; badgeStroke.Thickness = 1
+
+	local countLbl = label(badgeBg, "0", 13, C.ACCENT, Enum.Font.GothamBold)
+	countLbl.Size = UDim2.new(1, 0, 1, 0)
+	countLbl.Position = UDim2.new(0, 0, 0, 0)
+	countLbl.TextXAlignment = Enum.TextXAlignment.Center
+
+	-- Simpan referensi label ke tabel
+	inventoryLabels[itemData.key] = countLbl
+end
+
+-- Hitung tinggi card otomatis
+local totalCardHeight = rowYStart + #INVENTORY_DISPLAY * (rowHeight + rowGap) + 10
+invCard.Size = UDim2.new(1, 0, 0, totalCardHeight)
+
+-- ================================================
 -- TAB 2: TELEPORT
 -- ================================================
 tabFrames[2] = makeTabFrame()
@@ -666,14 +792,15 @@ end
 tabFrames[3] = makeTabFrame()
 tabFrames[3].Visible = false
 
--- Toggle biasa
 makeToggle(tabFrames[3], "Fly",        "Terbang bebas",         "Fly",       1)
-makeToggle(tabFrames[3], "Speed Hack", "Kecepatan karakter x3", "SpeedHack", 2)
+makeToggle(tabFrames[3], "Speed Hack", "Kecepatan karakter x3", "SpeedHack", 2, function()
+	applySpeed()
+end)
 makeToggle(tabFrames[3], "Noclip",     "Tembus dinding",        "Noclip",    3)
 makeToggle(tabFrames[3], "ESP",        "Lihat player lain",     "ESP",       4)
 
 -- ================================================
--- DELETE OBJECT CARD  (NEW!)
+-- DELETE OBJECT CARD
 -- ================================================
 local delCard = Instance.new("Frame", tabFrames[3])
 delCard.Size = UDim2.new(1, 0, 0, 148)
@@ -684,7 +811,6 @@ corner(delCard)
 local delStroke = Instance.new("UIStroke", delCard)
 delStroke.Color = C.BORDER; delStroke.Thickness = 1
 
--- Header
 local delHeaderLbl = label(delCard, "Hapus Objek", 13, C.TEXT, Enum.Font.GothamBold)
 delHeaderLbl.Size = UDim2.new(0.55, 0, 0, 18)
 delHeaderLbl.Position = UDim2.new(0, 12, 0, 10)
@@ -693,7 +819,6 @@ local delSubLbl = label(delCard, "Klik objek di dunia untuk menghapus", 10, C.MU
 delSubLbl.Size = UDim2.new(1, -100, 0, 14)
 delSubLbl.Position = UDim2.new(0, 12, 0, 27)
 
--- Toggle pill Delete Mode
 local delPill = Instance.new("Frame", delCard)
 delPill.Size = UDim2.new(0, 38, 0, 20)
 delPill.Position = UDim2.new(1, -50, 0, 10)
@@ -725,43 +850,162 @@ delToggleBtn.MouseButton1Click:Connect(function()
 	}):Play()
 end)
 
--- Divider
 local delDiv = Instance.new("Frame", delCard)
 delDiv.Size = UDim2.new(1, -24, 0, 1)
 delDiv.Position = UDim2.new(0, 12, 0, 50)
 delDiv.BackgroundColor3 = C.BORDER; delDiv.BorderSizePixel = 0
 
--- Info: hotkey
 local hotkeyLbl = label(delCard, "Tekan  [Z]  untuk Undo hapus terakhir", 11, C.MUTED, Enum.Font.Gotham)
 hotkeyLbl.Size = UDim2.new(1, -24, 0, 14)
 hotkeyLbl.Position = UDim2.new(0, 12, 0, 60)
 
--- Counter undo stack
 undoCountLbl = label(delCard, "Tersimpan: 0/" .. MAX_UNDO, 11, C.MUTED, Enum.Font.GothamBold)
 undoCountLbl.Size = UDim2.new(1, -24, 0, 14)
 undoCountLbl.Position = UDim2.new(0, 12, 0, 78)
 
--- Tombol Undo
 local undoBtn = makeActionBtn(delCard, "Undo Hapus Terakhir  [Z]", function()
 	undoDelete()
 end, 0, C.ORANGE)
 undoBtn.Size = UDim2.new(1, -24, 0, 34)
-undoBtn.Position = UDim2.new(0, 12, 0, 98)
-undoBtn.LayoutOrder = nil  -- diatur manual karena parent bukan ScrollingFrame
+undoBtn.Position = UDim2.new(0, 12, 0, 96)
+undoBtn.LayoutOrder = nil
 
--- Tombol Clear Stack
 local clearBtn = makeActionBtn(delCard, "Hapus Semua Riwayat Undo", function()
 	deleteStack = {}
 	updateUndoLabel()
 end, 0, C.DANGER)
 clearBtn.Size = UDim2.new(1, -24, 0, 34)
-clearBtn.Position = UDim2.new(0, 12, 0, 106)
--- Geser agar tidak bertindih dengan undoBtn
-undoBtn.Position  = UDim2.new(0, 12, 0, 96)
-clearBtn.Position = UDim2.new(0, 12, 0, 135)  -- di luar card height sedikit, bisa sesuaikan
+clearBtn.Position = UDim2.new(0, 12, 0, 135)
 
--- Resize card supaya muat semua
 delCard.Size = UDim2.new(1, 0, 0, 182)
+
+-- ================================================
+-- AIMBOT CARD  (Tab 3 - MISC)
+-- ================================================
+local aimbotTargetPart = "Head"  -- default target part
+
+local aimCard = Instance.new("Frame", tabFrames[3])
+aimCard.BackgroundColor3 = C.BG2
+aimCard.BorderSizePixel = 0
+aimCard.LayoutOrder = 6
+corner(aimCard)
+local aimStroke = Instance.new("UIStroke", aimCard)
+aimStroke.Color = C.BORDER; aimStroke.Thickness = 1
+
+-- Header
+local aimHeaderLbl = label(aimCard, "🎯  Aimbot", 13, C.TEXT, Enum.Font.GothamBold)
+aimHeaderLbl.Size = UDim2.new(0.55, 0, 0, 18)
+aimHeaderLbl.Position = UDim2.new(0, 12, 0, 10)
+
+local aimSubLbl = label(aimCard, "Tahan klik kanan untuk lock target", 10, C.MUTED, Enum.Font.Gotham)
+aimSubLbl.Size = UDim2.new(1, -100, 0, 14)
+aimSubLbl.Position = UDim2.new(0, 12, 0, 27)
+
+-- Toggle pill Aimbot ON/OFF
+local aimPill = Instance.new("Frame", aimCard)
+aimPill.Size = UDim2.new(0, 38, 0, 20)
+aimPill.Position = UDim2.new(1, -50, 0, 10)
+aimPill.BackgroundColor3 = C.TOGGLE_OFF
+aimPill.BorderSizePixel = 0
+corner(aimPill, 10)
+
+local aimKnob = Instance.new("Frame", aimPill)
+aimKnob.Size = UDim2.new(0, 14, 0, 14)
+aimKnob.Position = UDim2.new(0, 3, 0.5, -7)
+aimKnob.BackgroundColor3 = C.MUTED
+aimKnob.BorderSizePixel = 0
+corner(aimKnob, 10)
+
+local aimToggleBtn = Instance.new("TextButton", aimCard)
+aimToggleBtn.Size = UDim2.new(0, 80, 0, 40)
+aimToggleBtn.Position = UDim2.new(1, -90, 0, 0)
+aimToggleBtn.BackgroundTransparency = 1
+aimToggleBtn.Text = ""
+aimToggleBtn.MouseButton1Click:Connect(function()
+	state.Aimbot = not state.Aimbot
+	local on = state.Aimbot
+	TweenService:Create(aimPill, TweenInfo.new(0.2), {
+		BackgroundColor3 = on and C.DANGER or C.TOGGLE_OFF
+	}):Play()
+	TweenService:Create(aimKnob, TweenInfo.new(0.2), {
+		Position = on and UDim2.new(1,-17,0.5,-7) or UDim2.new(0,3,0.5,-7),
+		BackgroundColor3 = on and C.TEXT or C.MUTED,
+	}):Play()
+end)
+
+-- Divider
+local aimDiv = Instance.new("Frame", aimCard)
+aimDiv.Size = UDim2.new(1, -24, 0, 1)
+aimDiv.Position = UDim2.new(0, 12, 0, 48)
+aimDiv.BackgroundColor3 = C.BORDER; aimDiv.BorderSizePixel = 0
+
+-- Label "Target Part"
+local targetLbl = label(aimCard, "Target Bagian Tubuh :", 11, C.MUTED, Enum.Font.Gotham)
+targetLbl.Size = UDim2.new(1, -24, 0, 14)
+targetLbl.Position = UDim2.new(0, 12, 0, 56)
+
+-- Opsi target part
+local TARGET_PARTS = {
+	{ label = "Head",       part = "Head"        },
+	{ label = "Torso",      part = "HumanoidRootPart" },
+	{ label = "Left Arm",   part = "Left Arm"    },
+	{ label = "Right Arm",  part = "Right Arm"   },
+	{ label = "Left Leg",   part = "Left Leg"    },
+	{ label = "Right Leg",  part = "Right Leg"   },
+}
+
+local selectedPartBtns = {}
+local partBtnYStart = 74
+local partBtnH = 26
+local partBtnGap = 4
+-- 2 kolom
+local colW   = 0.47
+local colGap = 0.06
+
+for i, opt in ipairs(TARGET_PARTS) do
+	local col = (i - 1) % 2          -- 0 = kiri, 1 = kanan
+	local row = math.floor((i - 1) / 2)
+	local xPos = col == 0 and 0.03 or (0.03 + colW + colGap)
+	local yPos = partBtnYStart + row * (partBtnH + partBtnGap)
+
+	local btn = Instance.new("TextButton", aimCard)
+	btn.Size = UDim2.new(colW, 0, 0, partBtnH)
+	btn.Position = UDim2.new(xPos, 0, 0, yPos)
+	btn.BackgroundColor3 = opt.part == aimbotTargetPart and C.ACCENT or C.BG3
+	btn.Text = opt.label
+	btn.TextColor3 = opt.part == aimbotTargetPart and C.TEXT or C.MUTED
+	btn.TextSize = 11
+	btn.Font = Enum.Font.GothamBold
+	btn.BorderSizePixel = 0
+	corner(btn, 5)
+	local bs = Instance.new("UIStroke", btn)
+	bs.Color = opt.part == aimbotTargetPart and C.ACCENT or C.BORDER
+	bs.Thickness = 1
+
+	selectedPartBtns[i] = {btn = btn, stroke = bs, part = opt.part}
+
+	btn.MouseButton1Click:Connect(function()
+		aimbotTargetPart = opt.part
+		-- Update semua button
+		for _, b in ipairs(selectedPartBtns) do
+			local active = (b.part == aimbotTargetPart)
+			TweenService:Create(b.btn, TweenInfo.new(0.15), {
+				BackgroundColor3 = active and C.ACCENT or C.BG3,
+				TextColor3 = active and C.TEXT or C.MUTED,
+			}):Play()
+			b.stroke.Color = active and C.ACCENT or C.BORDER
+		end
+	end)
+end
+
+-- Status aimbot
+local aimStatusLbl = label(aimCard, "Status: OFF  |  Target: Head", 10, C.MUTED, Enum.Font.Gotham)
+aimStatusLbl.Size = UDim2.new(1, -24, 0, 14)
+aimStatusLbl.Position = UDim2.new(0, 12, 0, partBtnYStart + 3 * (partBtnH + partBtnGap) + 6)
+
+-- Hitung tinggi card aimbot otomatis
+local aimCardH = partBtnYStart + 3 * (partBtnH + partBtnGap) + 28
+aimCard.Size = UDim2.new(1, 0, 0, aimCardH)
 
 -- ================================================
 -- TAB 4: CREDITS
@@ -842,7 +1086,7 @@ plr.Idled:Connect(function()
 	end
 end)
 
--- Auto Buy Loop
+-- Auto Buy Loop (dengan tracking inventory)
 local RS = game:GetService("ReplicatedStorage")
 local moneyChanged = RS:WaitForChild("RemoteEvents"):WaitForChild("MoneyChanged")
 
@@ -854,9 +1098,16 @@ task.spawn(function()
 			statusBuyLbl.TextColor3 = C.SUCCESS
 			for _, item in ipairs(ITEMS) do
 				for i = 1, autoBuyAmount do
-					pcall(function()
+					local success = pcall(function()
 						moneyChanged:FireServer(item.id)
 					end)
+					-- Jika FireServer berhasil, tambah ke inventory
+					if success then
+						local itemKey = INVENTORY_ITEM_IDS[item.id]
+						if itemKey then
+							addInventoryItem(itemKey, 1)
+						end
+					end
 					task.wait(0.05)
 				end
 			end
@@ -868,8 +1119,23 @@ task.spawn(function()
 end)
 
 -- Speed Hack
-RunService.Heartbeat:Connect(function()
-	hum.WalkSpeed = state.SpeedHack and 48 or 16
+-- Terapkan WalkSpeed hanya saat toggle berubah, bukan setiap frame
+local BASE_SPEED  = 16
+local SPEED_HACK  = 48
+
+local function applySpeed()
+	if hum and hum.Parent then
+		hum.WalkSpeed = state.SpeedHack and SPEED_HACK or BASE_SPEED
+	end
+end
+
+-- Re-apply saat karakter respawn agar tidak kembali ke default
+plr.CharacterAdded:Connect(function(newChar)
+	char = newChar
+	hrp  = newChar:WaitForChild("HumanoidRootPart")
+	hum  = newChar:WaitForChild("Humanoid")
+	task.wait(0.5)   -- tunggu humanoid siap
+	applySpeed()
 end)
 
 -- Noclip
@@ -903,6 +1169,89 @@ RunService.Heartbeat:Connect(function()
 			+ Vector3.new(0, UIS:IsKeyDown(Enum.KeyCode.Space) and 40 or UIS:IsKeyDown(Enum.KeyCode.LeftControl) and -40 or 0, 0)
 	else
 		stopFly()
+	end
+end)
+
+-- ================================================
+-- AIMBOT SYSTEM
+-- ================================================
+local Camera      = workspace.CurrentCamera
+local aimbotConn  = nil
+
+-- Cari target terdekat dari crosshair (center screen)
+local function getClosestTarget()
+	local closestPlayer = nil
+	local closestDist   = math.huge
+	local screenCenter  = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+	for _, target in ipairs(Players:GetPlayers()) do
+		if target ~= plr and target.Character then
+			local targetChar = target.Character
+			local targetHum  = targetChar:FindFirstChildOfClass("Humanoid")
+			-- Hanya lock target yang masih hidup
+			if targetHum and targetHum.Health > 0 then
+				-- Cari part sesuai pilihan
+				local part = targetChar:FindFirstChild(aimbotTargetPart)
+				-- Fallback: jika part tidak ketemu coba HumanoidRootPart
+				if not part then
+					part = targetChar:FindFirstChild("HumanoidRootPart")
+				end
+				if part then
+					-- Cek apakah part visible di layar
+					local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+					if onScreen then
+						local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+						if dist2D < closestDist then
+							closestDist   = dist2D
+							closestPlayer = part
+						end
+					end
+				end
+			end
+		end
+	end
+	return closestPlayer
+end
+
+-- Jalankan aimbot: aktif hanya saat klik kanan ditekan
+local aimbotHolding = false
+
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		aimbotHolding = true
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		aimbotHolding = false
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	if not state.Aimbot then return end
+	if not aimbotHolding then
+		-- Update status label saat idle
+		aimStatusLbl.Text = "Status: ON  |  Target: " .. aimbotTargetPart .. "  |  Tahan RMB"
+		aimStatusLbl.TextColor3 = C.MUTED
+		return
+	end
+
+	local targetPart = getClosestTarget()
+	if targetPart then
+		-- Smooth aim ke target
+		local targetPos  = targetPart.Position
+		local currentCF  = Camera.CFrame
+		local lookCF     = CFrame.lookAt(currentCF.Position, targetPos)
+		-- Lerp smooth (0.3 = kecepatan aim, makin tinggi makin cepat)
+		Camera.CFrame    = currentCF:Lerp(lookCF, 0.3)
+
+		aimStatusLbl.Text = "🔴 LOCKED: " .. targetPart.Parent.Name .. "  [" .. aimbotTargetPart .. "]"
+		aimStatusLbl.TextColor3 = C.DANGER
+	else
+		aimStatusLbl.Text = "Status: ON  |  Tidak ada target"
+		aimStatusLbl.TextColor3 = C.MUTED
 	end
 end)
 
@@ -991,7 +1340,7 @@ Players.PlayerAdded:Connect(function(target)
 	end)
 end)
 
--- Inisialisasi label undo counter
+-- Inisialisasi
 updateUndoLabel()
 
-print("[KEMERUS HUB v2.0] Loaded! | Delete Object + Undo aktif di Tab MISC")
+print("[KEMERUS HUB v2.0] Loaded! | Inventory System aktif di Tab AUTO FARM")
